@@ -1,0 +1,164 @@
+#!/bin/bash
+
+# Copyright (c) 2025 lzlhero
+# Licensed under the GNU General Public License v3.0 (GPL-3.0)
+
+trap 'exit 130' INT
+
+fn_dlm3u8() {
+  # set basename
+  if [[ -z "$basename" ]]; then
+    basename="output"
+  fi
+  # trim dot
+  while [[ "${basename: -1}" == "." ]]; do
+    basename="${basename%.}"
+  done
+  ext="$(echo "${basename: -4}" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$ext" == ".mp4" ]]; then
+    basename="${basename%.*}"
+  fi
+
+  # set files' name
+  input="${basename}.m3u8"
+  output="${basename}.mp4"
+  aria2c_input="${basename}.aria2c.txt"
+  scan_log="${basename}.ffmpeg.scan.log"
+  merge_log="${basename}.ffmpeg.merge.log"
+
+  # validate output file name
+  if [[ ! -f "$output" ]]; then
+    touch "$output" >/dev/null 2>&1
+    if [[ $? -eq 0 ]]; then
+      rm -f "$output"
+    else
+      echo "Error: Invalid output file name or path in \"$output\""
+      return 1
+    fi
+  fi
+
+  # download m3u8 file
+  aria2c --allow-overwrite=true --continue=false --split=1 -q -o "$input" "$url" >/dev/null 2>&1
+  if [[ $? -eq 0 ]]; then
+    echo "Download \"$url\" as \"$input\" OK."
+  else
+    echo "Error: Failed to download \"$url\"."
+    return 1
+  fi
+
+  # rebuild m3u8, generate aria2c file
+  node "$(dirname "$0")/js/ppm3u8.js" "$input" "$url"
+  if [[ $? -ne 0 ]]; then
+    return 1
+  fi
+
+  # download files from aria2c input file
+  echo
+  echo "Starting to download files from \"$aria2c_input\"..."
+  aria2c -i "$aria2c_input"
+  if [[ $? -eq 0 ]]; then
+    rm -f "$aria2c_input"
+  else
+    echo
+    echo "Error: Failed to download some files related to \"$url\""
+    return 1
+  fi
+
+  # generate ffmpeg scan log
+  echo
+  echo "Generating \"$scan_log\" for advertisement removal..."
+  ffmpeg -allowed_extensions ALL -protocol_whitelist "file,crypto,data" -i "$input" -c copy -f null /dev/null >"$scan_log" 2>&1
+  if [[ $? -ne 0 ]]; then
+    echo "Error: There are errors in the generated \"$scan_log\"."
+    return 1
+  fi
+
+  # rebuild m3u8 to remove ads
+  node "$(dirname "$0")/js/fixm3u8.js" "$input" "$scan_log"
+  if [[ $? -ne 0 ]]; then
+    return 1
+  fi
+
+  # merge all ts files to mp4 file
+  echo
+  echo "Merging \"$output\" based on \"$input\"..."
+  ffmpeg -y -allowed_extensions ALL -protocol_whitelist "file,crypto,data" -i "$input" -c copy "$output" >"$merge_log" 2>&1
+  if [[ $? -ne 0 ]]; then
+    echo "Error: Failed to merge \"$output\"."
+    return 1
+  fi
+
+  #check the "discontinuity" keyword in ffmpeg merge log
+  grep -q "discontinuity" "$merge_log"
+  if [[ $? -eq 0 ]]; then
+    echo "\"$output\" was merged successfully, but ad removal failed. Please check the log files for details."
+    return 1
+  fi
+
+  rm -f "$input" "$scan_log" "$merge_log"
+  echo "Successfully merged \"$output\"."
+  return 0
+}
+
+# main
+# display usage information
+if [[ -z "$1" ]]; then
+  echo "Usage: dlm3u8 m3u8-url [output.mp4]"
+  echo "       dlm3u8 -i list.txt"
+  echo
+  echo "Note: The input list file is used for batch downloading m3u8 URLs. Each line represents a download task, with the URL and output file separated by one or more spaces or tabs. When no output file is specified, the output files will be named sequentially as 001.mp4, 002.mp4, 003.mp4, and so on."
+  echo
+  echo "dlm3u8 relies on aria2, Node.js, and FFmpeg. These tools must be installed and available in the PATH."
+  echo
+  echo "Author: lzlhero <lzlhero@gmail.com>"
+  echo "Project: https://github.com/lzlhero/dlm3u8"
+  echo "License: GNU General Public License v3.0"
+  echo
+  exit 1
+fi
+
+# check command line arguments
+if [[ "$1" != "-i" ]]; then
+  # normal
+  url="$1"
+  basename="$2"
+
+  fn_dlm3u8
+else
+  # input list file
+  if [[ -z "$2" ]]; then
+    echo "Error: Require an input list file."
+    exit 1
+  fi
+
+  if [[ ! -f "$2" ]]; then
+    echo "Error: File \"$2\" not found."
+    exit 1
+  fi
+
+  lines=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    lines+=("$line")
+  done < "$2"
+
+  count=0
+  for line in "${lines[@]}"; do
+    # trim left and right of current line
+    line="${line#"${line%%[^[:space:]\"]*}"}"
+    line="${line%"${line##*[^[:space:]\"]}"}"
+
+    # parse url and output fields
+    if [[ -n "$line" ]] && [[ $line =~ ^([^[:space:]\"]+)([[:space:]\"]+)?(.+)?$ ]]; then
+      url="${BASH_REMATCH[1]}"
+      if [[ -z "${BASH_REMATCH[3]}" ]]; then
+        ((count++))
+        basename=$(printf "%03d" "$count")
+      else
+        basename="${BASH_REMATCH[3]}"
+      fi
+
+      echo "----------------------------------------"
+      fn_dlm3u8
+    fi
+  done
+fi
