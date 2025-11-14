@@ -95,6 +95,14 @@
   )
 
   del /f /q "%input%" "%scan_log%" "%merge_log%" >NUL 2>&1
+  
+  for /r %%D in (cache) do (
+    if exist "%%D" (
+      del /f /q "%%D\*" >NUL 2>&1
+      rmdir /s /q "%%D" >NUL 2>&1
+    )
+  )
+
   echo Successfully merged "%output%".
   exit /b 0
 

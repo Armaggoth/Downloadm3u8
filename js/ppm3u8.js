@@ -46,8 +46,11 @@ const flag = '\n# rebuilder: ppm3u8';
     console.log(`No "DISCONTINUITY" keyword in "${inputM3u8File}".`);
   }
 
+  // get base directory (directory name with no file name)
+  var lastSlash = Math.max(inputM3u8File.lastIndexOf("/"), inputM3u8File.lastIndexOf("\\"));
+  var baseDir = lastSlash !== -1 ? inputM3u8File.substring(0, lastSlash) : ".";
   // define download dir
-  const dir = 'cache';
+  const dir = `${baseDir}/cache`;
 
   // define list file lines
   var listFileLines = [];
@@ -93,7 +96,7 @@ const flag = '\n# rebuilder: ppm3u8';
       listFileLines.push(`  out=${filename}`);
 
       // modify ts line content
-      m3u8Lines[i] = `${dir}/${filename}`;
+      m3u8Lines[i] = `cache/${filename}`;
     }
   }
 
