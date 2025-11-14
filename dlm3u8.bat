@@ -19,12 +19,11 @@
   )
 
   :: set files' name
-  set "input=%basename%.m3u8"
-  set "output=%basename%.mp4"
-  set "aria2c_input=%basename%.aria2c.txt"
-  set "scan_log=%basename%.ffmpeg.scan.log"
-  set "merge_log=%basename%.ffmpeg.merge.log"
-
+  set "input=output/%basename%.m3u8"
+  set "output=output/%basename%.mp4"
+  set "aria2c_input=output/%basename%.aria2c.txt"
+  set "scan_log=output/%basename%.ffmpeg.scan.log"
+  set "merge_log=output/%basename%.ffmpeg.merge.log"
   :: validate output file name
   if not exist "%output%" (
     copy NUL "%output%" >NUL 2>&1
